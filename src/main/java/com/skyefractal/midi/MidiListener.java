@@ -13,6 +13,13 @@ public class MidiListener implements MetaEventListener {
 
     @Override
     public void meta(MetaMessage meta) {
-        logger.info("received metamessage");
+
+        logger.info("received metamessage; type = " + meta.getType());
+        byte[] data = meta.getData();
+        for (int i = 0; i < data.length; i++)
+        {
+            logger.info("byte " + i + " = " + data[i]);
+        }
+
     }
 }

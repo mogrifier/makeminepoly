@@ -7,6 +7,9 @@ import java.io.File;
 import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.OutputStream;
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.Map;
 
 /**
  * Midi utilities for me.
@@ -75,7 +78,7 @@ public class MidiHelp {
             Track track = seq.getTracks()[j];
             MidiEvent event = null;
             long tick = 0;
-            System.out.println("************  TRACK "+ j);
+            logger.info("************  TRACK "+ j);
             for (int i = 0; i < track.size(); i++) {
                 event = track.get(i);
                 logger.info("status = " + event.getMessage().getStatus() + "  ");
@@ -85,10 +88,73 @@ public class MidiHelp {
                 }
                 tick = event.getTick();
                 logger.info(" tick= " + tick);
-
             }
         }
     }
+
+    /**
+     * Split a MIDI track into one track for each note value (grouped by note value).
+     * @param track a midi track with multiple notes at same times (polyphonic)
+     * @return the Track[] of all the new tracks. Each only plays one set of the same notes from origial track
+     */
+    public static Sequence splitTrack(Track track) throws InvalidMidiDataException {
+        ArrayList<Track> tracks = new ArrayList<>(24);
+        MidiEvent event = null;
+        // Create a new sequence with 960 tick per quarter note but no tracks sine this method will add them
+        Sequence sequence = new Sequence(Sequence.PPQ, 960);
+        // Set the tempo of the track to 120 BPM (beats per minute)
+        //FIXME will need to scale this around 120BPM and adjust values in data byte[]
+        int tempo = 500000; // microseconds per quarter note= 120BPM. OMG. last three bytes are 500,000 in hex bytes
+        byte[] data = new byte[]{0x51, 0x03, 0x07, (byte)160, 0x20};
+        //byte wtf = 0xa6 is not LEGAL- some UTF problem I think. so (byte)160.
+        MidiMessage tempoMsg = new MetaMessage(0x51, data, data.length);
+        //0x51 = set tempo. see https://mido.readthedocs.io/en/latest/meta_message_types.html
+        MidiEvent tempoEvent = new MidiEvent(tempoMsg, 0);
+        //use a map- key is the note, data is the Track
+        Map<Integer, Track> noteTrack = new HashMap<Integer, Track>();
+        int status = 0;
+        int note = 0;
+        int velocity = 0;
+        Track currentTrack = null;
+        MidiEvent noteEvent = null;
+        ShortMessage noteData = null;
+        for (int i = 0; i < track.size(); i++) {
+            event = track.get(i);
+            //only looking for note on or off
+            status = event.getMessage().getStatus();
+            /*
+            Note MIDI Message structure. For a ShortMessage (like note on/off) there are 3 bytes.
+            Byte 0 is the status. Byte 1 is the note. Byte 2 is the velocity.
+             */
+            if (status == ShortMessage.NOTE_OFF || status == ShortMessage.NOTE_ON)
+            {
+                //get note. check map. make track if not done already
+                note = event.getMessage().getMessage()[1];
+                if (!noteTrack.containsKey(note))
+                {
+                    //create new track and put in map. Should be set to same resolution and division type (PPQ)
+                    currentTrack = sequence.createTrack();
+                    //adds tempo event at time tick = 0
+                    currentTrack.add(tempoEvent);
+                    //add to map
+                    noteTrack.put(note, currentTrack);
+                }
+                else
+                {
+                    //get the Track for the note from the map
+                    currentTrack = noteTrack.get(note);
+                }
+                //add new event to the track
+                velocity = event.getMessage().getMessage()[2];
+                noteData = new ShortMessage(status, note, velocity);
+                noteEvent = new MidiEvent(noteData, event.getTick());
+                currentTrack.add(noteEvent);
+            }
+        }
+        //any other things to add to create valid track?  End of track marker?
+        return sequence;
+    }
+
 
 
     /**
@@ -96,7 +162,7 @@ public class MidiHelp {
      */
     public static void writeMidiFile() {
         try (OutputStream stream =  new FileOutputStream(new File("./sample.mid"))) {
-            // Create a new sequence with 96 tick per quarter note and 1 track
+            // Create a new sequence with 960 tick per quarter note and 1 track
             Sequence sequence = new Sequence(Sequence.PPQ, 960, 1);
 
             // Create a new track

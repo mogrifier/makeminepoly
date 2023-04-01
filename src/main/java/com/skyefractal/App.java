@@ -26,6 +26,7 @@ public class App
     public static void main( String[] args )
     {
         App app = new App();
+        /*
         Runtime.getRuntime().addShutdownHook(new Thread()
         {
             public void run()
@@ -34,18 +35,38 @@ public class App
                 try {
                     MidiHelp.allNotesOff();
                 } catch (InvalidMidiDataException e) {
-                    logger.error("oops- failed to send al notes off", e);
+                    logger.error("oops- failed to send all notes off properly", e);
                 }
             }
         });
-        logger.info("Application Terminating ...");
+        */
 
 
-        String midiFileToPlay = args[0];
+        //String midiFileToPlay = args[0];
         // app.playMidi(midiFileToPlay);
-        app.playSequence(args[0], 1, MOTU);
+        //app.playSequence(args[0], 1, MOTU);
+
+        //arguments are an input file (from classpath) and output file name
+        app.splitTrack(args[0], args[1]);
     }
 
+
+    public void splitTrack(String midi, String multiTrackMidi) {
+        Sequencer sequencer = null;
+
+        try (InputStream midiData = this.getClass().getClassLoader().getResourceAsStream(midi)) {
+            // Set the sequence for the sequencer
+            Sequence sequence = MidiSystem.getSequence(midiData);
+            //this sequence should only have one track. wrong if more.
+            if (sequence.getTracks().length > 1) {
+                throw new InvalidMidiDataException("midi file has more than 1 track");
+            }
+            Sequence multiTrack = MidiHelp.splitTrack(sequence.getTracks()[0]);
+            MidiSystem.write(multiTrack, 1, new File(multiTrackMidi));
+        } catch (IOException | InvalidMidiDataException e) {
+            logger.error("invalid data or midi file not found", e);
+        }
+    }
 
     /**
      * "Express  128: Port"
