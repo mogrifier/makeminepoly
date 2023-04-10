@@ -9,6 +9,7 @@ import java.io.IOException;
 import java.io.OutputStream;
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 
 /**
@@ -37,20 +38,34 @@ public class MidiHelp {
             throw new MidiUnavailableException("no MIDI receivers found");
         }
 
+        boolean found = false;
         for (int i = 0; i < info.length; i++) {
             logger.info(info[i]);
             //scan for interface name and the port. String form is unknown so look for both. not great.
             if (info[i].toString().contains(Integer.toString(port))
                     && info[i].toString().contains(midiInterfaceName))
             {
-                //found receiver
-                logger.info("found requested device: " + info[i]);
+                //found matching name- verify if a receiver or not
                 MidiDevice device = MidiSystem.getMidiDevice(info[i]);
                 device.open();
-                receiver = device.getReceiver();
-                break;
+                try {
+                    receiver = device.getReceiver();
+                    logger.info("found requested device: " + info[i] + "  ;" + receiver.getClass().toString());
+                }
+                catch (MidiUnavailableException e)
+                {
+                    //not a receiver
+                    logger.info("found a matching named port/device, but not a receiver: " + info[i]);
+                }
+
+            }
+            else
+            {
+                MidiDevice device = MidiSystem.getMidiDevice(info[i]);
+                device.close();
             }
         }
+
         return receiver;
     }
 
@@ -78,16 +93,16 @@ public class MidiHelp {
             Track track = seq.getTracks()[j];
             MidiEvent event = null;
             long tick = 0;
-            logger.info("************  TRACK "+ j);
+            logger.debug("************  TRACK "+ j);
             for (int i = 0; i < track.size(); i++) {
                 event = track.get(i);
-                logger.info("status = " + event.getMessage().getStatus() + "  ");
+                logger.debug("status = " + event.getMessage().getStatus() + "  ");
                 byte[] msg = event.getMessage().getMessage();
                 for (int k = 0; k < msg.length; k++) {
-                    logger.info(" byte " + k + "= " + msg[k]);
+                    logger.debug(" byte " + k + "= " + msg[k]);
                 }
                 tick = event.getTick();
-                logger.info(" tick= " + tick);
+                logger.debug(" tick= " + tick);
             }
         }
     }
@@ -224,6 +239,23 @@ public class MidiHelp {
 
         //no shortcut. got to write the code to put this in a track and send it with a sequencer??
 
+
+    }
+
+
+
+    public static void disableDefaultSynth() throws MidiUnavailableException
+    {
+        Synthesizer synth = MidiSystem.getSynthesizer();
+        Soundbank bank = synth.getDefaultSoundbank();
+        synth.unloadAllInstruments(bank);
+        synth.close();
+        Sequencer sequencer = MidiSystem.getSequencer();
+        List<Receiver> receivers = sequencer.getReceivers();
+        for (Receiver recv : receivers)
+        {
+            recv.close();
+        }
 
     }
 }

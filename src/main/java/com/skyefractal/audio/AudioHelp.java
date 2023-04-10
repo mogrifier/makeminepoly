@@ -1,4 +1,6 @@
 package com.skyefractal.audio;
+import javax.sound.midi.MidiDevice;
+import javax.sound.midi.MidiSystem;
 import javax.sound.sampled.*;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -14,6 +16,24 @@ public class AudioHelp {
 
     private static final Logger logger = LogManager.getLogger(AudioHelp.class);
 
+
+    public static Mixer getMixer(String mixerName)
+    {
+        Mixer.Info[] info = AudioSystem.getMixerInfo();
+        Mixer mixer = null;
+        for (int i = 0; i < info.length; i++) {
+            logger.info(info[i]);
+            //scan for interface name and the port. String form is unknown so look for both. not great.
+            if (info[i].toString().contains(mixerName))
+            {
+                //found receiver
+                logger.info("found mixer input: " + info[i]);
+                mixer = AudioSystem.getMixer(info[i]);
+                break;
+            }
+        }
+        return mixer;
+    }
 
     public static void showMixers() {
         ArrayList<Mixer.Info>

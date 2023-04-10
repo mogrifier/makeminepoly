@@ -21,10 +21,9 @@ public class App
 
     private static final Logger logger = LogManager.getLogger(App.class);
 
-    private static String MOTU = "Express  128: Port";
+    private static final String MOTUMIDIEXPRESS = "Express  128: Port";
 
-    public static void main( String[] args )
-    {
+    public static void main( String[] args ) throws MidiUnavailableException {
         App app = new App();
         /*
         Runtime.getRuntime().addShutdownHook(new Thread()
@@ -41,16 +40,39 @@ public class App
         });
         */
 
+        if (args[0].equals("-s"))
+        {
+            //split a track
+            logger.info("splitting midi file " + args[1] + " into multiple tracks and saving as " + args[2]);
+            app.splitTrack(args[1], args[2]);
+        }
+        else if (args[0].equals("-r"))
+        {
+            //record a track
+            logger.info("recording multitrack midi file " + args[1] + " as separate audio stems.");
+            app.recordMultitrackMidi(args[1], args[2], Integer.parseInt(args[3]), args[4]);
+        }
+        else if (args[0].equals("-p"))
+        {
+            //play a track
+            logger.info("playing midi file " + args[1] + " over " + args[2] + " - " + args[3]);
+            app.playSequence(args[1], args[2], Integer.parseInt(args[3]));
+        }
 
-        //String midiFileToPlay = args[0];
-        // app.playMidi(midiFileToPlay);
-        //app.playSequence(args[0], 1, MOTU);
+        System.exit(0);
 
-        //arguments are an input file (from classpath) and output file name
-        app.splitTrack(args[0], args[1]);
     }
 
 
+    /**
+     * This expects a midi file with 1 polyphonic track. It will create a new track for each note
+     * (all of the same notes). So if your original track used 5 notes, you will get five tracks. All played
+     * together it will sound like the original. The point of splitting, though is to enable a monosynth to play
+     * each track and record the audio from it. Merging all the audio stems will create a polyphonic version
+     * from a monosynth, saving you from much tedium.
+     * @param midi the midi file to read and split into multiple tracks (one per note)
+     * @param multiTrackMidi the name of new multitrack midi file to write the data to
+     */
     public void splitTrack(String midi, String multiTrackMidi) {
         Sequencer sequencer = null;
 
@@ -69,12 +91,13 @@ public class App
     }
 
     /**
-     * "Express  128: Port"
-     * @param midi
-     * @param port
-     * @param midiInterface
+     * Plays a midi file and sends the MIDI data out the specified interface and port.
+     *
+     * @param midi  midi file name
+     * @param midiInterface name of interface output, i.e. "Express  128: Port"
+     * @param port  port number of the interface
      */
-    public void playSequence(String midi, int port, String midiInterface)
+    public void playSequence(String midi, String midiInterface, int port)
     {
         Sequencer sequencer = null;
         Receiver recv;
@@ -82,6 +105,8 @@ public class App
 
         try (InputStream midiData = this.getClass().getClassLoader().getResourceAsStream(midi))
         {
+            //try to kill default synth in the OS. Why? It keeps playing all the time.
+            MidiHelp.disableDefaultSynth();
             // Get a Sequencer instance
             sequencer = MidiSystem.getSequencer();
             // Open the sequencer
@@ -93,7 +118,7 @@ public class App
             //examine all events in the sequence
             MidiHelp.dumpSequence(sequence);
             mitter = sequencer.getTransmitter();
-            // Start playing the sequence on the specified MIDI output port of the MOTU express
+            // Start playing the sequence on the specified MIDI output port of the interface
             recv = MidiHelp.getReceiver(port, midiInterface);
             //set to transmit on this port to device
             mitter.setReceiver(recv);
@@ -117,8 +142,13 @@ public class App
     }
 
 
-    public void playMidi(String midiFile)
-    {
+    /**
+     * This will play and record each track of a Type 1 midi file. The intent is to play each from a monosynth
+     * and create a set of stems that can be merged into a nice polyphonic track.
+     * @param midiFile a Type 1 multitrack midi file
+     */
+    public void recordMultitrackMidi(String midiFile, String midiInterface, int port, String mixerName) throws MidiUnavailableException {
+        MidiHelp.disableDefaultSynth();
         Sequencer sequencer;
         Receiver recv;
         Transmitter mitter;
@@ -131,18 +161,23 @@ public class App
         AudioInputStream audioInputStream;
         int count = 0;
         MidiDevice.Info myMidiOut;
-
         // Set the audio format
         format = new AudioFormat(44000.0f, 16, 2, true, false);
 
-
         try (InputStream input = this.getClass().getClassLoader().getResourceAsStream(midiFile))
         {
+            //try to kill default synth in the OS. Why? It keeps playing all the time.
+            MidiHelp.disableDefaultSynth();
+
+            audioRecord = new FileOutputStream(new File("./recording.wav"));
+            inputStream = new ByteArrayInputStream(audio);
+            audioInputStream = new AudioInputStream(inputStream, format, audio.length / format.getFrameSize());
+
+
             AudioHelp.showMixers();
-        audioRecord = new FileOutputStream(new File("./recording.wav"));
-        Mixer.Info[] mixers = AudioSystem.getMixerInfo();
-        Mixer recordingMixer = AudioSystem.getMixer(mixers[18]);
-        //Mixer: 19UFX1604 Input 13/14 (Behringer , supports TargetDataLine , Direct Audio Device: DirectSound Capture
+            Mixer.Info[] mixers = AudioSystem.getMixerInfo();
+            Mixer recordingMixer = AudioSystem.getMixer(mixers[22]);
+            //Mixer: 19UFX1604 Input 13/14 (Behringer , supports TargetDataLine , Direct Audio Device: DirectSound Capture
 
   /*
   To record in Windows 11, you have to select the mixer for the default sound input for recording.
@@ -151,26 +186,23 @@ public class App
   If you can't find a device in the sound settings, scroll down to All Sound Devices and you may find it was disabled.
   */
 
-        logger.info("using mixer " + recordingMixer.getMixerInfo().toString());
+            logger.info("using mixer " + recordingMixer.getMixerInfo().toString());
+            Line[] targetLines = recordingMixer.getTargetLines();
 
-        Line[] lines =  recordingMixer.getSourceLines();
-        logger.info("** lines = " + lines.length);
-        for (int i = 0; i < lines.length; i++) {
-            logger.info(lines[i].getLineInfo().toString());
-        }
+            for (Line current : targetLines)
+            {
+                logger.info(" target line from recordingMixer: " + current.getLineInfo());
+            }
 
-            inputStream = new ByteArrayInputStream(audio);
-            audioInputStream = new AudioInputStream(inputStream, format, audio.length / format.getFrameSize());
-
-            // Get the default microphone as the target data line for recording
-            DataLine.Info info = new DataLine.Info(TargetDataLine.class, format);
-            line = (TargetDataLine) AudioSystem.getLine(info);
+            // Get the default microphone as the target data line for recording-
+            // very confusing but it seems I don't need the Mixer at all. Just grab the default input.
+            //DataLine.Info info = new DataLine.Info(TargetDataLine.class, format);
+            line = AudioSystem.getTargetDataLine(format, recordingMixer.getMixerInfo());
 
             // Open the target data line for recording
             line.open(format, 8192);
             // Start recording
             line.start();
-
 
             // Get a Sequencer instance
             sequencer = MidiSystem.getSequencer();
@@ -184,13 +216,18 @@ public class App
             MidiHelp.dumpSequence(sequence);
             mitter = sequencer.getTransmitter();
             // Start playing the sequence on the specified MIDI output port of the MOTU express
-            recv = MidiHelp.getReceiver(1, "Express  128: Port");
+            recv = MidiHelp.getReceiver(port, midiInterface);
             //set to transmit on this port to device
             mitter.setReceiver(recv);
 
             //play a file and record the audio. Should be in a Thread.
-            //FIXME thread it up. garbage collection will cause blips.
             sequencer.start();
+
+            //FIXME
+            /*
+            need to pipe the audio to a writer. No need to allocate all at once.
+
+             */
 
             while(sequencer.isRunning())
             {
@@ -210,11 +247,13 @@ public class App
                 InputStream stream = new ByteArrayInputStream(audio, 0, count);
                 audioInputStream = new AudioInputStream(stream, format, count);
                 AudioSystem.write(audioInputStream, fileType, audioRecord);
-
             }
         }
             catch (IOException | MidiUnavailableException | InvalidMidiDataException | LineUnavailableException e) {
                 e.printStackTrace();
             }
     }
+
+
+
 }
