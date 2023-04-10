@@ -156,61 +156,25 @@ public class App
         byte[] audio = new byte[10000000];
         OutputStream audioRecord;
         AudioFileFormat.Type fileType = AudioFileFormat.Type.WAVE;
-        AudioFormat format;
-        ByteArrayInputStream inputStream;
         AudioInputStream audioInputStream;
-        int count = 0;
-        MidiDevice.Info myMidiOut;
+        AudioHelp.showMixers();
         // Set the audio format
-        format = new AudioFormat(44000.0f, 16, 2, true, false);
-
-        try (InputStream input = this.getClass().getClassLoader().getResourceAsStream(midiFile))
+        AudioFormat format = new AudioFormat(44000.0f, 16, 2, true, false);
+        InputStream inputMidi =  this.getClass().getClassLoader().getResourceAsStream(midiFile);
+        try
         {
-            //try to kill default synth in the OS. Why? It keeps playing all the time.
-            MidiHelp.disableDefaultSynth();
-
-            audioRecord = new FileOutputStream(new File("./recording.wav"));
-            inputStream = new ByteArrayInputStream(audio);
-            audioInputStream = new AudioInputStream(inputStream, format, audio.length / format.getFrameSize());
-
-
-            AudioHelp.showMixers();
-            Mixer.Info[] mixers = AudioSystem.getMixerInfo();
-            Mixer recordingMixer = AudioSystem.getMixer(mixers[22]);
-            //Mixer: 19UFX1604 Input 13/14 (Behringer , supports TargetDataLine , Direct Audio Device: DirectSound Capture
-
-  /*
-  To record in Windows 11, you have to select the mixer for the default sound input for recording.
-  Also has to be allowed, naturally, to be default in first place. Just showing up in the list of inputs
-  is NOT good enough.
-  If you can't find a device in the sound settings, scroll down to All Sound Devices and you may find it was disabled.
-  */
-
-            logger.info("using mixer " + recordingMixer.getMixerInfo().toString());
-            Line[] targetLines = recordingMixer.getTargetLines();
-
-            for (Line current : targetLines)
-            {
-                logger.info(" target line from recordingMixer: " + current.getLineInfo());
-            }
-
-            // Get the default microphone as the target data line for recording-
-            // very confusing but it seems I don't need the Mixer at all. Just grab the default input.
-            //DataLine.Info info = new DataLine.Info(TargetDataLine.class, format);
-            line = AudioSystem.getTargetDataLine(format, recordingMixer.getMixerInfo());
-
-            // Open the target data line for recording
-            line.open(format, 8192);
-            // Start recording
-            line.start();
-
             // Get a Sequencer instance
             sequencer = MidiSystem.getSequencer();
             // Open the sequencer
             sequencer.open();
             // Set the sequence for the sequencer
-            Sequence sequence = MidiSystem.getSequence(input);
+            Sequence sequence = MidiSystem.getSequence(inputMidi);
             sequencer.setSequence(sequence);
+            //mute all tracks
+            int trackCount = sequence.getTracks().length;
+            for (int j = 0; j < trackCount; j++) {
+                sequencer.setTrackMute(j, true);
+            }
 
             //examine all events in the sequence
             MidiHelp.dumpSequence(sequence);
@@ -220,40 +184,71 @@ public class App
             //set to transmit on this port to device
             mitter.setReceiver(recv);
 
-            //play a file and record the audio. Should be in a Thread.
-            sequencer.start();
+            //try to kill default synth in the OS. Why? It keeps playing all the time.
+            MidiHelp.disableDefaultSynth();
+            Mixer recordingMixer = AudioHelp.getMixer(mixerName);
+            logger.info("using mixer " + recordingMixer.getMixerInfo());
 
-            //FIXME
-            /*
-            need to pipe the audio to a writer. No need to allocate all at once.
+            //play each separate track in the midi file and record the audio to separate files
+            for (int i = 0; i < trackCount; i++) {
+                //use the specified mixer
+                line = AudioSystem.getTargetDataLine(format, recordingMixer.getMixerInfo());
+                // Open the target data line for recording
+                line.open(format, 8192);
+                // Start recording
+                line.start();
 
-             */
+                int count = 0;
+                //play a file and record the audio. Should be in a Thread.
+                //unmute current track
+                sequencer.setTrackMute(i, false);
+                sequencer.setTrackSolo(i, true);
+                //ensures back at the beginning for each track
+                sequencer.setMicrosecondPosition(0);
+                sequencer.start();
 
-            while(sequencer.isRunning())
-            {
-                count = count + line.read(audio, count, line.available());
-                logger.debug("read audio = " + count);
-            }
+                //FIXME
+                /*
+                need to pipe the audio to a writer. No need to allocate all at once.
 
-            if (!sequencer.isRunning())
-            {
-                //close and exit
-                // Close the sequencer
-                sequencer.close();
-                line.stop();
-                line.close();
+                 */
 
-                // Write the recorded audio data to the audio file
-                InputStream stream = new ByteArrayInputStream(audio, 0, count);
-                audioInputStream = new AudioInputStream(stream, format, count);
-                AudioSystem.write(audioInputStream, fileType, audioRecord);
+                while (sequencer.isRunning()) {
+                    count = count + line.read(audio, count, line.available());
+                    logger.debug("read audio = " + count);
+                }
+
+                //need to keep recording (for extra 10 seconds) to get any audio tails.
+                long startTime = System.currentTimeMillis();
+                long currentTime = 0;
+                while(currentTime - startTime < 10000)
+                {
+                    currentTime = System.currentTimeMillis();
+                    count = count + line.read(audio, count, line.available());
+                }
+
+
+                //finish recording and free resources to get ready for next run
+                if (!sequencer.isRunning()) {
+                    //prepare to play next track by muting track just played
+                    sequencer.setTrackMute(i, true);
+                    sequencer.setTrackSolo(i, false);
+                    sequencer.stop();  //redundant I think
+                    //write the audio recorded
+                    line.stop();
+                    line.close();
+                    InputStream stream = new ByteArrayInputStream(audio, 0, count);
+                    audioInputStream = new AudioInputStream(stream, format, count);
+                    audioRecord = new FileOutputStream(new File("./recording_" + i + ".wav"));
+                    AudioSystem.write(audioInputStream, fileType, audioRecord);
+                }
+
+                logger.info("next track");
             }
         }
-            catch (IOException | MidiUnavailableException | InvalidMidiDataException | LineUnavailableException e) {
-                e.printStackTrace();
-            }
+        catch(IOException | MidiUnavailableException | InvalidMidiDataException | LineUnavailableException e)
+        {
+            e.printStackTrace();
+        }
     }
-
-
-
-}
+    }

@@ -40,7 +40,7 @@ public class MidiHelp {
 
         boolean found = false;
         for (int i = 0; i < info.length; i++) {
-            logger.info(info[i]);
+            logger.debug(info[i]);
             //scan for interface name and the port. String form is unknown so look for both. not great.
             if (info[i].toString().contains(Integer.toString(port))
                     && info[i].toString().contains(midiInterfaceName))
