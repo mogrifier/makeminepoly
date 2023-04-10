@@ -153,7 +153,7 @@ public class App
         Receiver recv;
         Transmitter mitter;
         TargetDataLine line = null;
-        byte[] audio = new byte[10000000];
+        byte[] audio = new byte[20000000];
         OutputStream audioRecord;
         AudioFileFormat.Type fileType = AudioFileFormat.Type.WAVE;
         AudioInputStream audioInputStream;
@@ -203,9 +203,7 @@ public class App
                 //unmute current track
                 sequencer.setTrackMute(i, false);
                 sequencer.setTrackSolo(i, true);
-                //ensures back at the beginning for each track
-                sequencer.setMicrosecondPosition(0);
-                sequencer.start();
+
 
                 //FIXME
                 /*
@@ -213,14 +211,29 @@ public class App
 
                  */
 
+                //record before sequencer starts
+                long startTime = System.currentTimeMillis();
+                long currentTime = 0;
+
+                while(currentTime - startTime < 2000)
+                {
+                    currentTime = System.currentTimeMillis();
+                    count = count + line.read(audio, count, line.available());
+                }
+
+                //ensures back at the beginning for each track
+                sequencer.setMicrosecondPosition(0);
+                sequencer.start();
+
                 while (sequencer.isRunning()) {
                     count = count + line.read(audio, count, line.available());
                     logger.debug("read audio = " + count);
                 }
 
+
                 //need to keep recording (for extra 10 seconds) to get any audio tails.
-                long startTime = System.currentTimeMillis();
-                long currentTime = 0;
+                startTime = System.currentTimeMillis();
+                currentTime = 0;
                 while(currentTime - startTime < 10000)
                 {
                     currentTime = System.currentTimeMillis();
@@ -243,7 +256,7 @@ public class App
                     AudioSystem.write(audioInputStream, fileType, audioRecord);
                 }
 
-                logger.info("next track");
+                logger.info("complete track " + i);
             }
         }
         catch(IOException | MidiUnavailableException | InvalidMidiDataException | LineUnavailableException e)
