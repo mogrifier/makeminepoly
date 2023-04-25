@@ -81,9 +81,9 @@ public class App
             // Set the sequence for the sequencer
             Sequence sequence = MidiSystem.getSequence(midiData);
             //this sequence should only have one track. wrong if more.
-           // if (sequence.getTracks().length > 1) {
-         //       throw new InvalidMidiDataException("midi file has more than 1 track");
-          //  }
+            if (sequence.getTracks().length > 2) {
+                throw new InvalidMidiDataException("midi file has more than 2 tracks");
+           }
             Sequence multiTrack = MidiHelp.splitTrack(sequence.getTracks()[1]);
             MidiSystem.write(multiTrack, 1, new File(multiTrackMidi));
         } catch (IOException | InvalidMidiDataException e) {
