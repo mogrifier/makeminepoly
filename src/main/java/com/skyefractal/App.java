@@ -1,6 +1,7 @@
 package com.skyefractal;
 
 import com.skyefractal.audio.AudioHelp;
+import com.skyefractal.audio.AudioRecorder;
 import com.skyefractal.midi.MidiHelp;
 
 import javax.sound.midi.*;
@@ -80,10 +81,10 @@ public class App
             // Set the sequence for the sequencer
             Sequence sequence = MidiSystem.getSequence(midiData);
             //this sequence should only have one track. wrong if more.
-            if (sequence.getTracks().length > 1) {
-                throw new InvalidMidiDataException("midi file has more than 1 track");
-            }
-            Sequence multiTrack = MidiHelp.splitTrack(sequence.getTracks()[0]);
+           // if (sequence.getTracks().length > 1) {
+         //       throw new InvalidMidiDataException("midi file has more than 1 track");
+          //  }
+            Sequence multiTrack = MidiHelp.splitTrack(sequence.getTracks()[1]);
             MidiSystem.write(multiTrack, 1, new File(multiTrackMidi));
         } catch (IOException | InvalidMidiDataException e) {
             logger.error("invalid data or midi file not found", e);
@@ -153,13 +154,12 @@ public class App
         Receiver recv;
         Transmitter mitter;
         TargetDataLine line = null;
+
         byte[] audio = new byte[20000000];
         OutputStream audioRecord;
         AudioFileFormat.Type fileType = AudioFileFormat.Type.WAVE;
         AudioInputStream audioInputStream;
         AudioHelp.showMixers();
-        // Set the audio format
-        AudioFormat format = new AudioFormat(44000.0f, 16, 2, true, false);
         InputStream inputMidi =  this.getClass().getClassLoader().getResourceAsStream(midiFile);
         try
         {
@@ -192,71 +192,10 @@ public class App
             //play each separate track in the midi file and record the audio to separate files
             for (int i = 0; i < trackCount; i++) {
                 //use the specified mixer
-                line = AudioSystem.getTargetDataLine(format, recordingMixer.getMixerInfo());
-                // Open the target data line for recording
-                line.open(format, 8192);
-                // Start recording
-                line.start();
-
-                int count = 0;
-                //play a file and record the audio. Should be in a Thread.
-                //unmute current track
-                sequencer.setTrackMute(i, false);
-                sequencer.setTrackSolo(i, true);
-
-
-                //FIXME
-                /*
-                need to pipe the audio to a writer. No need to allocate all at once.
-
-                 */
-
-                //record before sequencer starts
-                long startTime = System.currentTimeMillis();
-                long currentTime = 0;
-
-                while(currentTime - startTime < 2000)
-                {
-                    currentTime = System.currentTimeMillis();
-                    count = count + line.read(audio, count, line.available());
-                }
-
-                //ensures back at the beginning for each track
-                sequencer.setMicrosecondPosition(0);
-                sequencer.start();
-
-                while (sequencer.isRunning()) {
-                    count = count + line.read(audio, count, line.available());
-                    logger.debug("read audio = " + count);
-                }
-
-
-                //need to keep recording (for extra 10 seconds) to get any audio tails.
-                startTime = System.currentTimeMillis();
-                currentTime = 0;
-                while(currentTime - startTime < 10000)
-                {
-                    currentTime = System.currentTimeMillis();
-                    count = count + line.read(audio, count, line.available());
-                }
-
-
-                //finish recording and free resources to get ready for next run
-                if (!sequencer.isRunning()) {
-                    //prepare to play next track by muting track just played
-                    sequencer.setTrackMute(i, true);
-                    sequencer.setTrackSolo(i, false);
-                    sequencer.stop();  //redundant I think
-                    //write the audio recorded
-                    line.stop();
-                    line.close();
-                    InputStream stream = new ByteArrayInputStream(audio, 0, count);
-                    audioInputStream = new AudioInputStream(stream, format, count);
-                    audioRecord = new FileOutputStream(new File("./recording_" + i + ".wav"));
-                    AudioSystem.write(audioInputStream, fileType, audioRecord);
-                }
-
-                logger.info("complete track " + i);
+                line = AudioSystem.getTargetDataLine(AudioHelp.CD_AUDIO, recordingMixer.getMixerInfo());
+                AudioRecorder recorder = new AudioRecorder(line, sequencer, i);
+                recorder.run();
+                logger.info("completed recording track " + i);
             }
         }
         catch(IOException | MidiUnavailableException | InvalidMidiDataException | LineUnavailableException e)

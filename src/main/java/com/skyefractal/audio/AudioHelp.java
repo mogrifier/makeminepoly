@@ -2,6 +2,9 @@ package com.skyefractal.audio;
 import javax.sound.midi.MidiDevice;
 import javax.sound.midi.MidiSystem;
 import javax.sound.sampled.*;
+import java.io.FileNotFoundException;
+import java.io.FileOutputStream;
+import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Arrays;
 
@@ -15,7 +18,25 @@ import org.apache.logging.log4j.Logger;
 public class AudioHelp {
 
     private static final Logger logger = LogManager.getLogger(AudioHelp.class);
-
+    public static final AudioFormat CD_AUDIO = new AudioFormat(44000.0f, 16, 2, true, false);
+    /**
+     * Writes a byte array to the given file name.
+     * @param data audio or any other byte array
+     * @param name name (plus path if desired) to the output file
+     */
+    public static void saveFile(byte[] data, String name)
+    {
+        //write data to a file
+        try {
+            FileOutputStream fos = new FileOutputStream(name);
+            fos.write(data);
+            fos.close();
+        }
+        catch (IOException e)
+        {
+            e.printStackTrace();
+        }
+    }
 
     public static Mixer getMixer(String mixerName)
     {
